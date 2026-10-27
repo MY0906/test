@@ -2,17 +2,29 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>筆跡浮き出し・消滅実験</title>
   <style>
-    body {
+    * {
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
       margin: 0;
+      padding: 0;
       background-color: #050505;
       overflow: hidden;
-      touch-action: none;
+      touch-action: none; /* スクロール防止 */
     }
     canvas {
       display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
     }
   </style>
 </head>
@@ -24,16 +36,22 @@
   const canvas = document.getElementById('myCanvas');
   const ctx = canvas.getContext('2d');
 
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
 
   let strokes = [];
   let currentStroke = [];
   let isDrawing = false;
 
+  // Pointer Events（Apple Pencil・タッチ両対応）
   canvas.addEventListener('pointerdown', (e) => {
     isDrawing = true;
     currentStroke = [];
+    canvas.setPointerCapture(e.pointerId); // ポインターを固定して操作を安定化
     addPoint(e);
   });
 
@@ -42,20 +60,25 @@
     addPoint(e);
   });
 
-  canvas.addEventListener('pointerup', () => {
+  canvas.addEventListener('pointerup', (e) => {
     if (!isDrawing) return;
     isDrawing = false;
     if (currentStroke.length > 0) {
       strokes.push({
         points: currentStroke,
-        opacity: 0,        // 現在の透明度
-        state: 'fadeIn'    // 状態: 'fadeIn'(浮き出る) -> 'fadeOut'(消えていく)
+        opacity: 0,       // 透明度 (0 -> 1 -> 0)
+        state: 'fadeIn'   // 'fadeIn' (浮き出る) -> 'fadeOut' (消える)
       });
     }
   });
 
+  canvas.addEventListener('pointercancel', () => {
+    isDrawing = false;
+  });
+
   function addPoint(e) {
-    const pressure = e.pressure > 0 ? e.pressure : 0.5;
+    // 筆圧の取得（取れない場合は0.5に補正）
+    const pressure = (e.pressure && e.pressure > 0) ? e.pressure : 0.5;
     currentStroke.push({
       x: e.clientX,
       y: e.clientY,
@@ -64,14 +87,16 @@
   }
 
   function animate() {
+    // 背景塗りつぶし
     ctx.fillStyle = 'rgba(5, 5, 5, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 描画中のうっすらしたガイド線
+    // 1. 書いている最中のうっすらしたリアルタイム線
     if (isDrawing && currentStroke.length > 1) {
+      ctx.shadowBlur = 0;
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 2;
       for (let i = 0; i < currentStroke.length - 1; i++) {
         ctx.moveTo(currentStroke[i].x, currentStroke[i].y);
         ctx.lineTo(currentStroke[i+1].x, currentStroke[i+1].y);
@@ -79,26 +104,26 @@
       ctx.stroke();
     }
 
-    // 筆跡アニメーション処理（配列を逆からループして削除可能にする）
+    // 2. 書き終わり後のアニメーション（浮き出る -> 徐々に消える）
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
 
-      // --- 状態コントロール（フェードイン・フェードアウト） ---
+      // フェードイン・フェードアウトのロジック
       if (stroke.state === 'fadeIn') {
-        stroke.opacity += 0.015; // じわっと浮き出るスピード
+        stroke.opacity += 0.02; // 浮き出るスピード
         if (stroke.opacity >= 1.0) {
           stroke.opacity = 1.0;
-          stroke.state = 'fadeOut'; // くっきり出たら消えるモードへ移行
+          stroke.state = 'fadeOut'; // 浮き出きったら消えるモードへ移行
         }
       } else if (stroke.state === 'fadeOut') {
-        stroke.opacity -= 0.005; // ゆっくり消えていくスピード（ここを小さくすると長く残る）
+        stroke.opacity -= 0.005; // 徐々に消えるスピード（ここを小さくするとゆっくり消えます）
         if (stroke.opacity <= 0) {
-          strokes.splice(i, 1); // 完全に透明になったらデータを削除してメモリ開放
+          strokes.splice(i, 1); // 完全に消えたらデータを削除
           continue;
         }
       }
 
-      // --- 描画処理 ---
+      // 描画エフェクト（ネオンのような発光）
       ctx.shadowBlur = 15;
       ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`;
       ctx.strokeStyle = `rgba(255, 255, 255, ${stroke.opacity})`;
@@ -108,7 +133,7 @@
       const points = stroke.points;
       for (let j = 0; j < points.length - 1; j++) {
         ctx.beginPath();
-        ctx.lineWidth = points[j].pressure * 12 + 1;
+        ctx.lineWidth = points[j].pressure * 12 + 1; // 筆圧に応じた太さ
         ctx.moveTo(points[j].x, points[j].y);
         ctx.lineTo(points[j+1].x, points[j+1].y);
         ctx.stroke();
@@ -118,4 +143,7 @@
     requestAnimationFrame(animate);
   }
 
-  animate
+  animate();
+</script>
+</body>
+</html>
