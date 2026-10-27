@@ -24,41 +24,38 @@
   const canvas = document.getElementById('myCanvas');
   const ctx = canvas.getContext('2d');
 
-  // キャンバスサイズを画面全体に合わせる
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  let strokes = []; // 書いたすべての筆跡データ
-  let currentStroke = []; // 現在描いている線のデータ
+  let strokes = [];
+  let currentStroke = [];
   let isDrawing = false;
 
-  // 1. Pointer Event（Apple Pencilの筆圧・座標を取得）
-  canvas.addEventListener('pointerdown', (e) => {
+  // --- イベント処理の強化（iPadOS対策） ---
+  function startDrawing(e) {
     isDrawing = true;
     currentStroke = [];
     addPoint(e);
-  });
+  }
 
-  canvas.addEventListener('pointermove', (e) => {
+  function drawMove(e) {
     if (!isDrawing) return;
     addPoint(e);
-  });
+  }
 
-  canvas.addEventListener('pointerup', () => {
+  function finishDrawing() {
     if (!isDrawing) return;
     isDrawing = false;
     if (currentStroke.length > 0) {
       strokes.push({
         points: currentStroke,
-        opacity: 0,       // 最初は透明（0）からスタート
-        state: 'fadeIn'   // 「浮かび上がり中」の状態から開始
+        createdAt: Date.now() // 書き終わった時刻をミリ秒で記録
       });
     }
-  });
+  }
 
   function addPoint(e) {
-    // 座標と筆圧（e.pressure）を取得
-    const pressure = e.pressure > 0 ? e.pressure : 0.5; // 筆圧が取れない場合は0.5
+    const pressure = e.pressure > 0 ? e.pressure : 0.5;
     currentStroke.push({
       x: e.clientX,
       y: e.clientY,
@@ -66,15 +63,21 @@
     });
   }
 
-  // 2. 描画・アニメーションループ（約60fpsで動き続ける）
+  // Pointer Events（離脱イベントも確実にキャッチ）
+  canvas.addEventListener('pointerdown', startDrawing);
+  canvas.addEventListener('pointermove', drawMove);
+  canvas.addEventListener('pointerup', finishDrawing);
+  canvas.addEventListener('pointercancel', finishDrawing); // iPad固有のキャンセルの救済
+  canvas.addEventListener('pointerleave', finishDrawing);
+
+  // --- 描画・アニメーションループ ---
   function animate() {
-    // 画面全体を少し黒で塗りつぶす（残像を残す効果）
     ctx.fillStyle = 'rgba(5, 5, 5, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 【描画中】リアルタイムで描いている手応え用のガイド線（うっすら表示）
+    // 【描画中】リアルタイムのガイド線
     if (isDrawing && currentStroke.length > 1) {
-      ctx.shadowBlur = 0; // ガイド線には影をつけない
+      ctx.shadowBlur = 0;
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 1;
@@ -85,42 +88,45 @@
       ctx.stroke();
     }
 
-    // 【書き終わり後】「じわっと浮かび上がり ➔ ゆっくり消える」処理
+    const now = Date.now();
+    const fadeInDuration = 1000;  // 浮き出る時間（1秒 = 1000ミリ秒）
+    const fadeOutDuration = 3000; // 消滅にかかる時間（3秒 = 3000ミリ秒）
+
+    // 【書き終わり後】時刻計算ベースのフェード処理
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
+      let elapsed = now - stroke.createdAt; // 書き終えてからの経過時間
 
-      // --- フェードイン（浮き出る）とフェードアウト（消える）の制御 ---
-      if (stroke.state === 'fadeIn') {
-        stroke.opacity += 0.015; // 浮き出るスピード
-        if (stroke.opacity >= 1.0) {
-          stroke.opacity = 1.0;
-          stroke.state = 'fadeOut'; // 完全に浮き出たら消えるモードに切り替え
-        }
-      } else if (stroke.state === 'fadeOut') {
-        stroke.opacity -= 0.005; // ゆっくり消えていくスピード
-        if (stroke.opacity <= 0) {
-          strokes.splice(i, 1); // 完全に消えたら配列から削除
-          continue;
-        }
+      let opacity = 0;
+
+      if (elapsed < fadeInDuration) {
+        // 0〜1秒：徐々に浮き出る（0.0 -> 1.0）
+        opacity = elapsed / fadeInDuration;
+      } else if (elapsed < fadeInDuration + fadeOutDuration) {
+        // 1〜4秒：徐々に消える（1.0 -> 0.0）
+        opacity = 1.0 - ((elapsed - fadeInDuration) / fadeOutDuration);
+      } else {
+        // 4秒以上経過したらデータ削除
+        strokes.splice(i, 1);
+        continue;
       }
 
-      // 筆跡の発光スタイル設定
+      // 発光グラフィック描画
       ctx.shadowBlur = 15;
-      ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${stroke.opacity})`;
+      ctx.shadowColor = `rgba(100, 200, 255, ${opacity})`;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
       const points = stroke.points;
-      // 線の描画ループ
       for (let j = 0; j < points.length - 1; j++) {
         ctx.beginPath();
         ctx.lineWidth = points[j].pressure * 12 + 1;
         ctx.moveTo(points[j].x, points[j].y);
         ctx.lineTo(points[j+1].x, points[j+1].y);
         ctx.stroke();
-      } // ← 欠けていた閉じカッコ
-    } // ← 欠けていた閉じカッコ
+      }
+    }
 
     requestAnimationFrame(animate);
   }
