@@ -24,7 +24,6 @@
   const canvas = document.getElementById('myCanvas');
   const ctx = canvas.getContext('2d');
 
-  // キャンバスサイズを画面全体に合わせる
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
@@ -32,7 +31,7 @@
   let currentStroke = [];
   let isDrawing = false;
 
-  // --- イベント処理（iPadOS・Apple Pencil対策） ---
+  // --- イベント処理 ---
   function startDrawing(e) {
     isDrawing = true;
     currentStroke = [];
@@ -48,9 +47,12 @@
     if (!isDrawing) return;
     isDrawing = false;
     if (currentStroke.length > 0) {
+      // 筆圧の平均値を計算してストローク全体の滑らかな太さとする
+      const avgPressure = currentStroke.reduce((acc, p) => acc + p.pressure, 0) / currentStroke.length;
       strokes.push({
         points: currentStroke,
-        createdAt: Date.now() // 書き終えた時刻（ミリ秒）
+        lineWidth: avgPressure * 10 + 2, // 平均筆圧に基づく太さ
+        createdAt: Date.now()
       });
     }
   }
@@ -64,65 +66,91 @@
     });
   }
 
-  // Pointer Events（離脱イベントも補正）
   canvas.addEventListener('pointerdown', startDrawing);
   canvas.addEventListener('pointermove', drawMove);
   canvas.addEventListener('pointerup', finishDrawing);
   canvas.addEventListener('pointercancel', finishDrawing);
   canvas.addEventListener('pointerleave', finishDrawing);
 
-  // --- 描画・アニメーションループ ---
+  // --- アニメーションループ ---
   function animate() {
-    // 画面全体の塗りつぶし
     ctx.fillStyle = 'rgba(5, 5, 5, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 【描画中】手応え用のうっすらしたリアルタイムガイド線
+    // 【描画中】リアルタイムのシンプルなガイド線
     if (isDrawing && currentStroke.length > 1) {
       ctx.shadowBlur = 0;
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < currentStroke.length - 1; i++) {
-        ctx.moveTo(currentStroke[i].x, currentStroke[i].y);
-        ctx.lineTo(currentStroke[i+1].x, currentStroke[i+1].y);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.moveTo(currentStroke[0].x, currentStroke[0].y);
+      for (let i = 1; i < currentStroke.length; i++) {
+        ctx.lineTo(currentStroke[i].x, currentStroke[i].y);
       }
       ctx.stroke();
     }
 
     const now = Date.now();
-    const fadeInDuration = 1000;  // 浮き出る時間（1秒）
-    const fadeOutDuration = 3000; // 消滅にかかる時間（3秒）
+    const fadeInDuration = 1000;  // 1秒で浮き出る
+    const fadeOutDuration = 3000; // 3秒で消える
 
-    // 【書き終わり後】時間経過によるフェード処理 ＋ ベジェ曲線描画
+    // 【書き終わり後】一筆書きによるシームレスなライン描画
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
-      let elapsed = now - stroke.createdAt; // 経過時間
+      let elapsed = now - stroke.createdAt;
 
       let opacity = 0;
 
       if (elapsed < fadeInDuration) {
-        // 0〜1秒：徐々に浮き出る
         opacity = elapsed / fadeInDuration;
       } else if (elapsed < fadeInDuration + fadeOutDuration) {
-        // 1〜4秒：徐々に消える
         opacity = 1.0 - ((elapsed - fadeInDuration) / fadeOutDuration);
       } else {
-        // 4秒経過で配列から完全除去
         strokes.splice(i, 1);
         continue;
       }
 
-      // 発光グラフィックのスタイル設定
+      // 発光・描画スタイルの設定
       ctx.shadowBlur = 15;
       ctx.shadowColor = `rgba(100, 200, 255, ${opacity})`;
       ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
+      ctx.lineWidth = stroke.lineWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
       const points = stroke.points;
 
-      // --- 滑らかな線を描くベジェ曲線補間ロジック ---
+      // ★一筆で繋げるための1つのパス（beginPath 〜 stroke）
+      ctx.beginPath();
+
       if (points.length < 3) {
-        // 点が極端に少ない（タップ・点描）場合の描画
-        for (let j = 0; j
+        // 点や短い線の場合
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let j = 1; j < points.length; j++) {
+          ctx.lineTo(points[j].x, points[j].y);
+        }
+      } else {
+        // 中間点を結ぶなめらかな曲線一筆描き
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let j = 1; j < points.length - 1; j++) {
+          const midX = (points[j].x + points[j + 1].x) / 2;
+          const midY = (points[j].y + points[j + 1].y) / 2;
+          ctx.quadraticCurveTo(points[j].x, points[j].y, midX, midY);
+        }
+        // 最後の点まで繋ぐ
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      }
+
+      // 1本のストロークに対して1回だけ描画（これで重なりによる点々が完全に消えます）
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+</script>
+</body>
+</html>
