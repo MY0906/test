@@ -24,6 +24,7 @@
   const canvas = document.getElementById('myCanvas');
   const ctx = canvas.getContext('2d');
 
+  // キャンバスサイズを画面全体に合わせる
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
@@ -31,7 +32,7 @@
   let currentStroke = [];
   let isDrawing = false;
 
-  // --- イベント処理の強化（iPadOS対策） ---
+  // --- イベント処理（iPadOS・Apple Pencil対策） ---
   function startDrawing(e) {
     isDrawing = true;
     currentStroke = [];
@@ -49,7 +50,7 @@
     if (currentStroke.length > 0) {
       strokes.push({
         points: currentStroke,
-        createdAt: Date.now() // 書き終わった時刻をミリ秒で記録
+        createdAt: Date.now() // 書き終えた時刻（ミリ秒）
       });
     }
   }
@@ -63,19 +64,20 @@
     });
   }
 
-  // Pointer Events（離脱イベントも確実にキャッチ）
+  // Pointer Events（離脱イベントも補正）
   canvas.addEventListener('pointerdown', startDrawing);
   canvas.addEventListener('pointermove', drawMove);
   canvas.addEventListener('pointerup', finishDrawing);
-  canvas.addEventListener('pointercancel', finishDrawing); // iPad固有のキャンセルの救済
+  canvas.addEventListener('pointercancel', finishDrawing);
   canvas.addEventListener('pointerleave', finishDrawing);
 
   // --- 描画・アニメーションループ ---
   function animate() {
+    // 画面全体の塗りつぶし
     ctx.fillStyle = 'rgba(5, 5, 5, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 【描画中】リアルタイムのガイド線
+    // 【描画中】手応え用のうっすらしたリアルタイムガイド線
     if (isDrawing && currentStroke.length > 1) {
       ctx.shadowBlur = 0;
       ctx.beginPath();
@@ -89,29 +91,29 @@
     }
 
     const now = Date.now();
-    const fadeInDuration = 1000;  // 浮き出る時間（1秒 = 1000ミリ秒）
-    const fadeOutDuration = 3000; // 消滅にかかる時間（3秒 = 3000ミリ秒）
+    const fadeInDuration = 1000;  // 浮き出る時間（1秒）
+    const fadeOutDuration = 3000; // 消滅にかかる時間（3秒）
 
-    // 【書き終わり後】時刻計算ベースのフェード処理
+    // 【書き終わり後】時間経過によるフェード処理 ＋ ベジェ曲線描画
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
-      let elapsed = now - stroke.createdAt; // 書き終えてからの経過時間
+      let elapsed = now - stroke.createdAt; // 経過時間
 
       let opacity = 0;
 
       if (elapsed < fadeInDuration) {
-        // 0〜1秒：徐々に浮き出る（0.0 -> 1.0）
+        // 0〜1秒：徐々に浮き出る
         opacity = elapsed / fadeInDuration;
       } else if (elapsed < fadeInDuration + fadeOutDuration) {
-        // 1〜4秒：徐々に消える（1.0 -> 0.0）
+        // 1〜4秒：徐々に消える
         opacity = 1.0 - ((elapsed - fadeInDuration) / fadeOutDuration);
       } else {
-        // 4秒以上経過したらデータ削除
+        // 4秒経過で配列から完全除去
         strokes.splice(i, 1);
         continue;
       }
 
-      // 発光グラフィック描画
+      // 発光グラフィックのスタイル設定
       ctx.shadowBlur = 15;
       ctx.shadowColor = `rgba(100, 200, 255, ${opacity})`;
       ctx.strokeStyle = `rgba(255, 255, 255, ${opacity})`;
@@ -119,19 +121,8 @@
       ctx.lineJoin = 'round';
 
       const points = stroke.points;
-      for (let j = 0; j < points.length - 1; j++) {
-        ctx.beginPath();
-        ctx.lineWidth = points[j].pressure * 12 + 1;
-        ctx.moveTo(points[j].x, points[j].y);
-        ctx.lineTo(points[j+1].x, points[j+1].y);
-        ctx.stroke();
-      }
-    }
 
-    requestAnimationFrame(animate);
-  }
-
-  animate();
-</script>
-</body>
-</html>
+      // --- 滑らかな線を描くベジェ曲線補間ロジック ---
+      if (points.length < 3) {
+        // 点が極端に少ない（タップ・点描）場合の描画
+        for (let j = 0; j
