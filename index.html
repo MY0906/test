@@ -74,6 +74,7 @@
 
     // 【描画中】リアルタイムで描いている手応え用のガイド線（うっすら表示）
     if (isDrawing && currentStroke.length > 1) {
+      ctx.shadowBlur = 0; // ガイド線には影をつけない
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 1;
@@ -85,7 +86,6 @@
     }
 
     // 【書き終わり後】「じわっと浮かび上がり ➔ ゆっくり消える」処理
-    // 配列の後ろからループすることで、透明になったデータを安全に消去できます
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
 
@@ -99,19 +99,33 @@
       } else if (stroke.state === 'fadeOut') {
         stroke.opacity -= 0.005; // ゆっくり消えていくスピード
         if (stroke.opacity <= 0) {
-          strokes.splice(i, 1); // 完全に消えたら配列から削除（動作低下を防ぐ）
+          strokes.splice(i, 1); // 完全に消えたら配列から削除
           continue;
         }
       }
 
-      // 筆跡の描画（ネオン・発光のような表現）
-      ctx.shadowBlur = 15; // 光の滲み（ブラー）効果
-      ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`; // 水色に光る
+      // 筆跡の発光スタイル設定
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`;
       ctx.strokeStyle = `rgba(255, 255, 255, ${stroke.opacity})`;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
       const points = stroke.points;
+      // 線の描画ループ
       for (let j = 0; j < points.length - 1; j++) {
         ctx.beginPath();
-        ctx.lineWidth = points[j].pressure * 12 + 1; // 筆圧に応じて線の太さを変える
+        ctx.lineWidth = points[j].pressure * 12 + 1;
+        ctx.moveTo(points[j].x, points[j].y);
+        ctx.lineTo(points[j+1].x, points[j+1].y);
+        ctx.stroke();
+      } // ← 欠けていた閉じカッコ
+    } // ← 欠けていた閉じカッコ
+
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+</script>
+</body>
+</html>
