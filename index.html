@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>筆跡浮き出し実験</title>
+  <title>筆跡浮き出し・消滅実験</title>
   <style>
     body {
       margin: 0;
@@ -50,7 +50,8 @@
     if (currentStroke.length > 0) {
       strokes.push({
         points: currentStroke,
-        opacity: 0 // 最初は透明（0）からスタート
+        opacity: 0,       // 最初は透明（0）からスタート
+        state: 'fadeIn'   // 「浮かび上がり中」の状態から開始
       });
     }
   });
@@ -83,11 +84,24 @@
       ctx.stroke();
     }
 
-    // 【書き終わり後】「じわっと浮かび上がる」アニメーション処理
-    for (let stroke of strokes) {
-      // 透明度（opacity）を少しずつ上げて「浮かび上がらせる」
-      if (stroke.opacity < 1.0) {
-        stroke.opacity += 0.015; // ここを小さくすると、よりじわっとゆっくり浮かび上がります
+    // 【書き終わり後】「じわっと浮かび上がり ➔ ゆっくり消える」処理
+    // 配列の後ろからループすることで、透明になったデータを安全に消去できます
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      let stroke = strokes[i];
+
+      // --- フェードイン（浮き出る）とフェードアウト（消える）の制御 ---
+      if (stroke.state === 'fadeIn') {
+        stroke.opacity += 0.015; // 浮き出るスピード
+        if (stroke.opacity >= 1.0) {
+          stroke.opacity = 1.0;
+          stroke.state = 'fadeOut'; // 完全に浮き出たら消えるモードに切り替え
+        }
+      } else if (stroke.state === 'fadeOut') {
+        stroke.opacity -= 0.005; // ゆっくり消えていくスピード
+        if (stroke.opacity <= 0) {
+          strokes.splice(i, 1); // 完全に消えたら配列から削除（動作低下を防ぐ）
+          continue;
+        }
       }
 
       // 筆跡の描画（ネオン・発光のような表現）
@@ -98,19 +112,6 @@
       ctx.lineJoin = 'round';
 
       const points = stroke.points;
-      for (let i = 0; i < points.length - 1; i++) {
+      for (let j = 0; j < points.length - 1; j++) {
         ctx.beginPath();
-        ctx.lineWidth = points[i].pressure * 12 + 1; // 筆圧に応じて線の太さを変える
-        ctx.moveTo(points[i].x, points[i].y);
-        ctx.lineTo(points[i+1].x, points[i+1].y);
-        ctx.stroke();
-      }
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  animate();
-</script>
-</body>
-</html>
+        ctx.lineWidth = points[j].pressure * 12 + 1; // 筆圧に応じて線の太さを変える
