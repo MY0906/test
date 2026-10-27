@@ -2,24 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>筆跡実験</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>筆跡浮き出し・消滅実験</title>
   <style>
-    html, body {
-      width: 100%;
-      height: 100%;
+    body {
       margin: 0;
-      padding: 0;
-      background-color: #050505;
+      background-color: #050505; /* 暗い背景 */
       overflow: hidden;
-      -webkit-user-select: none;
-      user-select: none;
+      touch-action: none; /* スクロール防止 */
     }
     canvas {
       display: block;
-      width: 100%;
-      height: 100%;
-      touch-action: none;
     }
   </style>
 </head>
@@ -31,72 +24,58 @@
   const canvas = document.getElementById('myCanvas');
   const ctx = canvas.getContext('2d');
 
-  function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  }
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  // キャンバスサイズを画面全体に合わせる
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 
   let strokes = [];
   let currentStroke = [];
   let isDrawing = false;
 
-  // --- イベント取得（Pointer Events） ---
-  function handleStart(x, y, pressure) {
+  // 1. 一番最初と同じ単純な Pointer Events（Apple Pencil・タッチ対応）
+  canvas.addEventListener('pointerdown', (e) => {
     isDrawing = true;
     currentStroke = [];
-    addPoint(x, y, pressure);
-  }
+    addPoint(e);
+  });
 
-  function handleMove(x, y, pressure) {
+  canvas.addEventListener('pointermove', (e) => {
     if (!isDrawing) return;
-    addPoint(x, y, pressure);
-  }
+    addPoint(e);
+  });
 
-  function handleEnd() {
+  canvas.addEventListener('pointerup', () => {
     if (!isDrawing) return;
     isDrawing = false;
     if (currentStroke.length > 0) {
       strokes.push({
         points: currentStroke,
-        opacity: 0,
-        state: 'fadeIn'
+        opacity: 0,       // 0からスタート（透明）
+        state: 'fadeIn'   // 最初は「浮き出る」モード
       });
     }
+  });
+
+  function addPoint(e) {
+    const pressure = e.pressure > 0 ? e.pressure : 0.5;
+    currentStroke.push({
+      x: e.clientX,
+      y: e.clientY,
+      pressure: pressure
+    });
   }
 
-  function addPoint(x, y, pressure) {
-    const p = (pressure && pressure > 0) ? pressure : 0.5;
-    currentStroke.push({ x: x, y: y, pressure: p });
-  }
-
-  // Pointer Event リスナー（Apple Pencil / マウス）
-  canvas.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    handleStart(e.clientX, e.clientY, e.pressure);
-  }, { passive: false });
-
-  canvas.addEventListener('pointermove', (e) => {
-    if (!isDrawing) return;
-    e.preventDefault();
-    handleStart ? handleMove(e.clientX, e.clientY, e.pressure) : null;
-  }, { passive: false });
-
-  window.addEventListener('pointerup', () => handleEnd());
-  window.addEventListener('pointercancel', () => handleEnd());
-
-  // --- 描画ループ ---
+  // 2. 描画・アニメーションループ
   function animate() {
     ctx.fillStyle = 'rgba(5, 5, 5, 1)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 描画中のガイド線
+    // 【描画中】手応え用のうっすらしたガイド線
     if (isDrawing && currentStroke.length > 1) {
       ctx.shadowBlur = 0;
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
       for (let i = 0; i < currentStroke.length - 1; i++) {
         ctx.moveTo(currentStroke[i].x, currentStroke[i].y);
         ctx.lineTo(currentStroke[i+1].x, currentStroke[i+1].y);
@@ -104,26 +83,28 @@
       ctx.stroke();
     }
 
-    // アニメーション（フェードイン -> フェードアウト）
+    // 【書き終わり後】「浮かび上がって ➔ ゆっくり消える」処理
     for (let i = strokes.length - 1; i >= 0; i--) {
       let stroke = strokes[i];
 
+      // --- 透明度（opacity）のコントロール ---
       if (stroke.state === 'fadeIn') {
-        stroke.opacity += 0.02;
+        stroke.opacity += 0.02; // じわっと浮き出る
         if (stroke.opacity >= 1.0) {
           stroke.opacity = 1.0;
-          stroke.state = 'fadeOut';
+          stroke.state = 'fadeOut'; // くっきり出たら「消えるモード」に切り替え
         }
       } else if (stroke.state === 'fadeOut') {
-        stroke.opacity -= 0.005; // ゆっくり消去
+        stroke.opacity -= 0.005; // ゆっくり消える（小さくすると長く残ります）
         if (stroke.opacity <= 0) {
-          strokes.splice(i, 1);
+          strokes.splice(i, 1); // 完全に消えたらデータ削除
           continue;
         }
       }
 
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`;
+      // --- 筆跡の描画 ---
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = `rgba(100, 200, 255, ${stroke.opacity})`; // 水色に光る
       ctx.strokeStyle = `rgba(255, 255, 255, ${stroke.opacity})`;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -131,17 +112,5 @@
       const points = stroke.points;
       for (let j = 0; j < points.length - 1; j++) {
         ctx.beginPath();
-        ctx.lineWidth = points[j].pressure * 10 + 1;
+        ctx.lineWidth = points[j].pressure * 12 + 1;
         ctx.moveTo(points[j].x, points[j].y);
-        ctx.lineTo(points[j+1].x, points[j+1].y);
-        ctx.stroke();
-      }
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  animate();
-</script>
-</body>
-</html>
